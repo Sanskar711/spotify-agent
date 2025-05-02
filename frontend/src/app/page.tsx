@@ -71,7 +71,7 @@ export default function Home() {
       </div>
 
       {/* Input Area */}
-      <div className="border-t border-gray-800 p-4">
+      <div className="border-t border-gray-800 p-4 mb-6">
         <form onSubmit={handleSubmit} className="flex gap-2 max-w-2xl mx-auto w-full">
           <input
             type="text"
