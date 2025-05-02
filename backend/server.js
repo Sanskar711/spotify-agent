@@ -5,9 +5,10 @@ import { GoogleGenAI } from "@google/genai";
 import { SYSTEM_PROMPT } from "./agent.js";
 dotenv.config();
 
+const frontendUrl = process.env.FRONTEND_URL;
 const app = express();
 app.use(cors({
-  origin: "http://localhost:3000"
+  origin: frontendUrl
 }));
 app.use(express.json());
 
@@ -221,10 +222,10 @@ app.get('/callback', async function(req, res) {
     token = data.access_token;
     setAccessToken(token);
     // Redirect to frontend app with token
-    res.redirect(`http://localhost:3000/app?token=${data.access_token}`);
+    res.redirect(`${frontendUrl}/app?token=${data.access_token}`);
   } catch (error) {
     console.error('Error exchanging code for token:', error);
-    res.redirect('http://localhost:3000/login?error=auth_failed');
+    res.redirect(`${frontendUrl}/login?error=auth_failed`);
   }
 });
 
@@ -263,7 +264,7 @@ app.post('/chat', async (req, res) => {
 
     let finalResponse = null;
     let shouldContinue = true;
-
+    
     while (shouldContinue) {
       const response = await ai.models.generateContent({
         model: "gemini-2.0-flash",
@@ -272,11 +273,8 @@ app.post('/chat', async (req, res) => {
           systemInstruction: SYSTEM_PROMPT
         },
       });
-      
+      // console.log(SYSTEM_PROMPT)
       const geminiText = response?.candidates?.[0]?.content?.parts?.[0]?.text;
-      console.log("----------GEMINI TEXT----------");
-      console.log(geminiText);
-      console.log("----------END----------");
       if (!geminiText) {
         throw new Error("No valid Gemini response");
       }
@@ -316,14 +314,15 @@ app.post('/chat', async (req, res) => {
         const observation = await fn(...args, userToken);
         
         if (observation === "Invalid access token") {
-          return res.status(401).json({ error: "Invalid access token" });
+          return res.json({ response: "Access token expired. Please visit logout and login again to get a fresh access token." });
         }
 
         const observationMessage = {
           type: 'observation',
           message: `summarize the json response ${JSON.stringify(observation)} by song name and its url in a concise manner`
         };
-        messages.push({ role: 'assistant', parts: [{ text: JSON.stringify(observationMessage) }] });
+        messages.push({ role: 'user', parts: [{ text: JSON.stringify(observationMessage) }] });
+      
       }
     }
 
