@@ -29,8 +29,8 @@ export default function Login() {
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-black">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-8">Spotify AI Assistant</h1>
+      <div className="text-center flex flex-col items-center">
+        <h1 className="text-4xl font-bold text-white mb-8">Spotify AI Agent</h1>
         <button
           onClick={handleLogin}
           className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-full flex items-center gap-2"

@@ -4,6 +4,7 @@ import { AuthProvider } from './context/AuthContext';
 import { ChatProvider } from './context/ChatContext';
 import Home from './app/page';
 import Login from './app/login/page';
+import Footer from './components/Footer';
 import './index.css';
 
 const App: React.FC = () => {
@@ -11,11 +12,14 @@ const App: React.FC = () => {
     <AuthProvider>
       <ChatProvider>
         <Router>
-          <Routes>
-            <Route path="/" element={<Navigate to="/app" replace />} />
-            <Route path="/app" element={<Home />} />
-            <Route path="/login" element={<Login />} />
-          </Routes>
+          <div className="min-h-screen flex flex-col">
+            <Routes>
+              <Route path="/" element={<Navigate to="/app" replace />} />
+              <Route path="/app" element={<Home />} />
+              <Route path="/login" element={<Login />} />
+            </Routes>
+            <Footer />
+          </div>
         </Router>
       </ChatProvider>
     </AuthProvider>
