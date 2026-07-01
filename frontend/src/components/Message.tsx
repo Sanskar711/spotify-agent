@@ -26,7 +26,14 @@ const Message: React.FC<MessageProps> = ({ role, content }) => {
                 </a>
               );
             }
-            return part;
+            // Render **bold** segments.
+            return part.split(/(\*\*[^*]+\*\*)/g).map((seg, i) =>
+              seg.startsWith('**') && seg.endsWith('**') ? (
+                <strong key={i}>{seg.slice(2, -2)}</strong>
+              ) : (
+                <React.Fragment key={i}>{seg}</React.Fragment>
+              )
+            );
           })}
           {lineIndex < text.split('\n').length - 1 && <br />}
         </React.Fragment>

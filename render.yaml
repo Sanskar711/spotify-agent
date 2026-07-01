@@ -1,0 +1,42 @@
+# Render blueprint for the backend API.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: spotify-agent-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: FRONTEND_URL
+        sync: false # e.g. https://your-app.vercel.app
+      - key: CLIENT_ID
+        sync: false
+      - key: CLIENT_SECRET
+        sync: false
+      - key: REDIRECT_URI
+        sync: false # https://spotify-agent-api.onrender.com/auth/callback
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: AUDD_API_TOKEN
+        sync: false
+      - key: DEFAULT_LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false

@@ -1,0 +1,90 @@
+// ============================================================
+// Spotify AI Agent — Backend System Design
+// Paste into https://app.eraser.io  (Diagram-as-code)
+// ============================================================
+
+title Spotify AI Agent — Backend Architecture
+
+// ---------- Clients ----------
+Browser [icon: monitor, color: gray] {
+  Frontend [icon: react, label: "React + Vite (Vercel)"]
+}
+
+// ---------- Backend (Render) ----------
+Backend API [icon: server, color: green] {
+  Express App [icon: node, label: "Express server.js\nCORS + JSON"]
+
+  Middleware [icon: shield, color: orange] {
+    requireAuth [icon: key, label: "requireAuth\nverify session JWT\nrefresh Spotify token"]
+    Crypto [icon: lock, label: "crypto.js\nAES-256-GCM"]
+  }
+
+  Routes [icon: git-branch, color: blue] {
+    AuthRoute [icon: log-in, label: "/auth\nlogin · callback · me · logout"]
+    ChatRoute [icon: message-circle, label: "/chat\npost · history"]
+    SettingsRoute [icon: settings, label: "/settings\nproviders · get · put"]
+    RecognizeRoute [icon: mic, label: "/recognize\nAudD upload (multer)"]
+  }
+
+  Agent [icon: cpu, color: purple] {
+    AgentLoop [icon: refresh-cw, label: "agent.js\nReAct JSON loop\n(max 8 steps)"]
+    Tools [icon: tool, label: "tools.js\nartist · genre · album\nsearch · recommend\nqueue · playlist"]
+  }
+
+  LLMAbstraction [icon: sliders, label: "lib/llm.js\nprovider router\n(BYO key)"]
+}
+
+// ---------- External services ----------
+Supabase [icon: database, color: teal, label: "Supabase Postgres\nusers · user_settings\nchat_messages"]
+Spotify [icon: spotify, color: green, label: "Spotify Web API\nOAuth · search · queue · playlists"]
+AudD [icon: music, color: red, label: "AudD\nsong recognition"]
+
+LLM Providers [icon: brain, color: purple] {
+  Gemini [icon: google, label: "Gemini (free)"]
+  Groq [icon: zap, label: "Groq (free)"]
+  Claude [icon: anthropic, label: "Claude"]
+  OpenAI [icon: openai, label: "OpenAI"]
+}
+
+// ============================================================
+// Connections
+// ============================================================
+
+// Client edge
+Browser > AuthRoute: "GET /auth/login · OAuth redirect"
+Browser > ChatRoute: "POST /chat  (Bearer session JWT)"
+Browser > SettingsRoute: "GET/PUT /settings"
+Browser > RecognizeRoute: "POST /recognize  (audio clip)"
+
+// Express wiring
+Express App > Middleware
+Express App > Routes
+
+// Auth path
+AuthRoute > Spotify: "exchange code / refresh token"
+AuthRoute > Supabase: "upsert user (account creation)"
+AuthRoute > Crypto: "encrypt tokens"
+
+// Protected routes gate through auth middleware
+ChatRoute > requireAuth
+SettingsRoute > requireAuth
+RecognizeRoute > requireAuth
+requireAuth > Supabase: "load user"
+requireAuth > Spotify: "refresh access token if expired"
+requireAuth > Crypto: "decrypt tokens"
+
+// Chat path
+ChatRoute > AgentLoop: "runChatTurn(query, history)"
+ChatRoute > Supabase: "read/write chat history"
+AgentLoop > LLMAbstraction: "reason (system + messages)"
+AgentLoop > Tools: "execute tool call"
+Tools > Spotify: "search · recommendations · queue · playlist"
+LLMAbstraction > LLM Providers: "chosen provider + user key"
+
+// Settings path
+SettingsRoute > Supabase: "provider + encrypted API key"
+SettingsRoute > Crypto: "encrypt key"
+
+// Recognition path
+RecognizeRoute > AudD: "identify audio"
+AudD > Spotify: "returns Spotify track link"

@@ -1,33 +1,68 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import api from '../utils/api';
+
+export interface UserProfile {
+  id: string;
+  spotifyId: string;
+  email?: string;
+  displayName?: string;
+  avatarUrl?: string;
+  product?: string;
+}
 
 interface AuthContextType {
-  token: string | null;
-  setToken: (token: string | null) => void;
+  session: string | null;
+  user: UserProfile | null;
+  loadingUser: boolean;
+  login: (sessionToken: string) => void;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [token, setToken] = useState<string | null>(null);
+  const [session, setSession] = useState<string | null>(() => localStorage.getItem('session_token'));
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [loadingUser, setLoadingUser] = useState<boolean>(!!localStorage.getItem('session_token'));
 
-  useEffect(() => {
-    const storedToken = localStorage.getItem('spotify_token');
-    if (storedToken) {
-      setToken(storedToken);
+  const fetchMe = useCallback(async () => {
+    try {
+      const res = await api.get('/auth/me');
+      setUser(res.data);
+    } catch {
+      // Session invalid/expired — clear it.
+      localStorage.removeItem('session_token');
+      setSession(null);
+      setUser(null);
+    } finally {
+      setLoadingUser(false);
     }
   }, []);
 
-  const handleSetToken = (newToken: string | null) => {
-    if (newToken) {
-      localStorage.setItem('spotify_token', newToken);
+  useEffect(() => {
+    if (session) {
+      setLoadingUser(true);
+      fetchMe();
     } else {
-      localStorage.removeItem('spotify_token');
+      setUser(null);
+      setLoadingUser(false);
     }
-    setToken(newToken);
-  };
+  }, [session, fetchMe]);
+
+  const login = useCallback((sessionToken: string) => {
+    localStorage.setItem('session_token', sessionToken);
+    setSession(sessionToken);
+  }, []);
+
+  const logout = useCallback(() => {
+    api.post('/auth/logout').catch(() => {});
+    localStorage.removeItem('session_token');
+    setSession(null);
+    setUser(null);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ token, setToken: handleSetToken }}>
+    <AuthContext.Provider value={{ session, user, loadingUser, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -39,4 +74,4 @@ export const useAuth = () => {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-}; 
+};

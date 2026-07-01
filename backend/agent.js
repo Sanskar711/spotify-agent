@@ -1,184 +1,150 @@
-import dotenv from "dotenv";
-import Groq from "groq-sdk";
-import readlineSync from "readline-sync";
-import { tools } from './server.js';
-import { GoogleGenAI } from "@google/genai";
-dotenv.config();
+// Agent brain: provider-agnostic ReAct loop driving Spotify tools.
+
+import { tools } from "./tools.js";
+import { llmChat, defaultModelFor } from "./lib/llm.js";
+import { supabase } from "./lib/supabase.js";
+import { decrypt } from "./lib/crypto.js";
 
 export const SYSTEM_PROMPT = `
-You are a helpful Spotify AI assistant.
+You are a friendly, tasteful Spotify music assistant. You help users discover songs
+(by artist, genre, album, keyword, or vibe), recognize songs, build queues and playlists.
 
-Your goal is to assist users in finding songs based on artist, genre, or album and help them add these songs to their Spotify queue if they wish.
+You operate as a ReAct agent. On EVERY turn output exactly ONE JSON object, nothing else —
+no markdown, no code fences, no prose outside the JSON.
 
-You have access to these tools and always use them for searching:
-- getSongsByArtist(artist, limit): Search for songs by artist name.
-- getSongByGenre(genre, limit): Search for songs by genre.
-- getSongsByAlbum(album, limit): Search for songs by album.
-- getSongByName(songName): Search for songs by song name.
-- addToQueue(songId): Add a song to the user's active Spotify queue.
+Allowed JSON shapes:
+- {"type":"plan","message":"<short reasoning about the next tool>"}
+- {"type":"tool","name":"<toolName>","args":{ ... }}
+- {"type":"output","message":"<final answer to the user>"}
 
-Strict instructions:
-- Strictly follow the JSON format. No extra text or comments or anything else after or before the JSON object.
-- Strictly only output **one JSON object** per response.
-- The JSON format must be **strict** with fields: { "type": ..., "message": ... } or { "type": "tool", "name": ..., "args": { ... } }.
-- Always greet the user politely at the beginning.
-- Always ask if the user wants to add a song to their queue after showing results.
-  
-Spotify Search API key notes:
-- Endpoint: GET /search
-- Required fields: q (query string) and type (artist, album, track).
-- Optional: limit (max 50), market, offset.
+Available tools:
+- getSongsByArtist(artist, limit)          -> top tracks for an artist
+- getSongsByGenre(genre, limit)            -> tracks in a genre
+- getSongsByAlbum(album, limit)            -> tracks from an album
+- searchTracks(query, limit)               -> free-text / keyword search
+- getRecommendations(seedArtists[], seedGenres[], seedTracks[], limit) -> personalized suggestions (PREFER this for "recommend / similar / vibe" requests)
+- addToQueue(songId)                        -> add a track to the active queue (songId is the plain Spotify track id)
+- createPlaylist(name, trackIds[], description) -> create a private playlist
 
-- songId should be in the format of "spotify:track:xyz"
+Flow: for any request, first emit a {"plan"}, then a {"tool"}, read the observation the
+system returns, then either call another tool or emit the final {"output"}.
 
-use the follwing sequence
-user->plan->tool->observation->output
+Rules:
+- Use recommendations for taste-based / "songs like X" / "for a rainy night" style asks.
+- After showing results, list each as "Title — Artist: <url>" and ask if they want any
+  added to their queue or saved to a playlist.
+- Keep outputs concise and skimmable. Be warm, not robotic.
+- If a tool returns an error, explain it plainly and suggest a fix.
+- Never invent track URLs or ids — only use ones returned by tools.
+`;
 
-Examples of correct interaction:
+async function getUserLLMConfig(userId) {
+  const { data } = await supabase
+    .from("user_settings")
+    .select("provider, model, api_key_enc")
+    .eq("user_id", userId)
+    .maybeSingle();
 
-1. {"type":"output", "message":"Hi there! What kind of songs would you like? Artist, genre, or album?"}
-2. {"type":"user", "message":"Taylor Swift 3 songs"}
-3. { "type": "plan", "message": "Using getSongsByArtist to search..." },
-4. { "type": "tool", "name": "getSongsByArtist", "args": { "artist": "Taylor Swift", "limit": 3 } }
-5. { "type":"observation", "message":"summarize the json response {JSON Object} by song name and its url in a concise manner"}
-6. { "type":"output", "message":"Here are the top songs by Taylor Swift 
-  1. https://open.spotify.com/track/{xaksdfj} 
-  2. https://open.spotify.com/track/{xaksdfj} 
-  3. https://open.spotify.com/track/{xaksdfj} 
-. Would you like to add them to your queue?"}
-If user says yes:
-1. { "type": "plan", "message": "Using addToQueue tool to add song." },
-2. { "type": "tool", "name": "addToQueue", "args": { "songId": "<spotify:track:xyz>" } }
-3. { "type":"observation", "message":"{success:true}"}
-3. { "type":"output", "message":"Successfully added the song to your queue!"}
-please follow the above sequence strictly.
-`
-
-
-const messages = [];
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-async function fetchAccessToken() {
-    const response = await fetch('http://localhost:8000/token');
-    const data = await response.json();
-    return data.token;
+  const provider = data?.provider || process.env.DEFAULT_LLM_PROVIDER || "gemini";
+  let apiKey = null;
+  try {
+    apiKey = data?.api_key_enc ? decrypt(data.api_key_enc) : null;
+  } catch {
+    apiKey = null;
+  }
+  if (!apiKey) apiKey = envKeyFor(provider);
+  const model = data?.model || defaultModelFor(provider);
+  return { provider, model, apiKey };
 }
 
-function cleanJsonResponse(text) {
+function envKeyFor(provider) {
+  return {
+    gemini: process.env.GEMINI_API_KEY,
+    groq: process.env.GROQ_API_KEY,
+    claude: process.env.ANTHROPIC_API_KEY,
+    openai: process.env.OPENAI_API_KEY,
+  }[provider];
+}
+
+function parseAction(text) {
+  if (!text) return null;
+  const cleaned = text.replace(/```json\n?/g, "").replace(/```/g, "").trim();
   try {
-    if (!text) {
-      console.error("No text to clean!");
-      return null;
+    return JSON.parse(cleaned);
+  } catch {
+    // Best-effort: grab the first {...} block.
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (m) {
+      try {
+        return JSON.parse(m[0]);
+      } catch {
+        return null;
+      }
     }
-    text = text.replace(/```json\n?/g, '').replace(/```/g, '').trim();
-    return JSON.parse(text);
-  } catch (error) {
-    console.error("Error in cleanJsonResponse:", error);
     return null;
   }
 }
 
-async function runAgent() {
-  while (true) {
-      const query = readlineSync.question("Enter your query: ");
-      const userQuery = {
-          type: "user",
-          user: query
-      };
+const MAX_STEPS = 8;
 
-      messages.push({
-          role: "user",
-          parts: [{ text: JSON.stringify(userQuery) }]
-      });
-
-      while (true) {
-          let response;
-          try {
-              response = await ai.models.generateContent({
-                  model: "gemini-2.0-flash",
-                  contents: messages,
-                  config: {
-                      systemInstruction: SYSTEM_PROMPT
-                  },
-              });
-          } catch (error) {
-              console.error("Gemini API call failed:", error);
-              break;
-          }
-
-          const geminiText = response?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!geminiText) {
-              console.error("No valid Gemini response. Breaking...");
-              break;
-          }
-
-        //   console.log("----------GEMINI TEXT----------");
-        //   console.log(geminiText);
-        //   console.log("----------END----------");
-
-          const action = cleanJsonResponse(geminiText);
-        //   console.log("----------Action----------");
-        //   console.log(action);
-        //   console.log("----------END----------");
-
-          if (!action) {
-              console.error("No valid action. Breaking...");
-              break;
-          }
-
-          messages.push({
-              role: "assistant",
-              parts: [{ text: JSON.stringify(action) }]
-          });
-
-          if (action.type === "output") {
-              console.log(` 🤖 :${action.message}`);
-              break;
-          } else if (action.type === "plan") {
-              messages.push({
-                  role: "user",
-                  parts: [{ text: JSON.stringify({ type: "user", user: "continue" }) }]
-              });
-              continue;
-          } else if (action.type === "tool") {
-              const fn = tools[action.name];
-              if (!fn) {
-                  throw new Error("Invalid tool call");
-              }
-              const args = Object.values(action.args);
-              if (action.name === "addToQueue" && args[0]) {
-                const songId = args[0];
-                if (songId.startsWith('spotify:track:')) {
-                    args[0] = songId.split('spotify:track:')[1]; // remove extra prefix
-                }
-            }
-              const accessToken = await fetchAccessToken();
-              const observation = await fn(...args, accessToken);
-              console.log("----------Observation----------");
-              console.log(observation);
-              console.log("----------END----------");
-
-              if (observation === "Invalid access token") {
-                  console.log(" 🤖 :Please visit http://localhost:8000/login to get a new access token.");
-                  const loginMessage = {
-                      type: 'output',
-                      message: "Please visit http://localhost:8000/login to get a new access token."
-                  };
-                  messages.push({ role: 'assistant', parts: [{ text: JSON.stringify(loginMessage) }] });
-                  break;
-              }
-
-              const observationMessage = {
-                  type: 'observation',
-                  message: `summarize the json response ${JSON.stringify(observation)} by song name and its url in a concise manner`
-              };
-              messages.push({ role: 'assistant', parts: [{ text: JSON.stringify(observationMessage) }] });
-
-              // 🛑 IMPORTANT: Immediately call Gemini again after pushing observation
-              continue; // start a new loop to generate new output
-          }
-      }
+// Runs one user turn end-to-end, returns the assistant's final text.
+export async function runChatTurn({ query, history = [], user, spotifyToken }) {
+  const { provider, model, apiKey } = await getUserLLMConfig(user.id);
+  if (!apiKey) {
+    return `I don't have an AI model configured yet. Open Settings and either pick "${provider}" with your own API key, or choose a free provider (Gemini / Groq).`;
   }
-}
 
-// runAgent(); 
+  const messages = history.map((m) => ({ role: m.role, content: m.content }));
+  messages.push({ role: "user", content: query });
+
+  const ctx = { spotifyToken, user };
+
+  for (let step = 0; step < MAX_STEPS; step++) {
+    let text;
+    try {
+      text = await llmChat({ provider, apiKey, model, system: SYSTEM_PROMPT, messages });
+    } catch (e) {
+      return `AI model error (${provider}): ${e.message}. Check your API key in Settings.`;
+    }
+
+    const action = parseAction(text);
+    if (!action) {
+      messages.push({ role: "user", content: "Your last reply was not valid JSON. Reply with exactly one JSON object." });
+      continue;
+    }
+    messages.push({ role: "assistant", content: JSON.stringify(action) });
+
+    if (action.type === "output") {
+      return action.message;
+    }
+
+    if (action.type === "plan") {
+      messages.push({ role: "user", content: JSON.stringify({ type: "system", note: "continue" }) });
+      continue;
+    }
+
+    if (action.type === "tool") {
+      const fn = tools[action.name];
+      if (!fn) {
+        messages.push({ role: "user", content: JSON.stringify({ type: "observation", error: `Unknown tool ${action.name}` }) });
+        continue;
+      }
+      let observation;
+      try {
+        observation = await fn(action.args || {}, ctx);
+      } catch (e) {
+        observation = { error: e.message };
+      }
+      messages.push({
+        role: "user",
+        content: JSON.stringify({ type: "observation", result: observation }),
+      });
+      continue;
+    }
+
+    // Unknown type — nudge.
+    messages.push({ role: "user", content: "Unknown action type. Use plan | tool | output." });
+  }
+
+  return "I couldn't complete that in time — try rephrasing or narrowing the request.";
+}
