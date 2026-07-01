@@ -1,46 +1,65 @@
 'use client';
 
-import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import axios from '../../utils/api';
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import api from '../../utils/api';
 import { useAuth } from '../../context/AuthContext';
+
+const ERRORS: Record<string, string> = {
+  auth_failed: 'Spotify login failed. Please try again.',
+  state_mismatch: 'Security check failed. Please try again.',
+  no_code: 'No authorization code returned by Spotify.',
+};
+
 export default function Login() {
   const navigate = useNavigate();
-  const { token, setToken } = useAuth();
+  const { session } = useAuth();
+  const [searchParams] = useSearchParams();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (token) {
-      navigate('/app');
-    }
-  }, [navigate, token]);
+    if (session) navigate('/app');
+  }, [navigate, session]);
+
+  useEffect(() => {
+    const e = searchParams.get('error');
+    if (e) setError(ERRORS[e] || 'Something went wrong during login.');
+  }, [searchParams]);
 
   const handleLogin = async () => {
+    setBusy(true);
     try {
-      const response = await axios.get('/login');
-      if (response.data && response.data.url) {
-      window.location.href = response.data.url;
+      const response = await api.get('/auth/login');
+      if (response.data?.url) {
+        window.location.href = response.data.url;
       } else {
-        console.error('No authorization URL received');
+        setError('No authorization URL received.');
+        setBusy(false);
       }
-    } catch (error) {
-      console.error('Login failed:', error);
+    } catch {
+      setError('Could not reach the server. Is the backend running?');
+      setBusy(false);
     }
   };
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-black">
-      <div className="text-center flex flex-col items-center">
-        <h1 className="text-4xl font-bold text-white mb-8">Spotify AI Agent</h1>
+      <div className="text-center flex flex-col items-center px-6">
+        <h1 className="text-4xl font-bold text-white mb-2">Spotify AI Agent</h1>
+        <p className="text-gray-400 mb-8">Discover, recognize, and queue music with AI.</p>
         <button
           onClick={handleLogin}
-          className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-full flex items-center gap-2"
+          disabled={busy}
+          className="bg-green-500 hover:bg-green-600 disabled:opacity-60 text-white font-bold py-3 px-6 rounded-full flex items-center gap-2"
         >
           <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
+            <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
           </svg>
-          Login with Spotify
+          {busy ? 'Redirecting…' : 'Login with Spotify'}
         </button>
+        {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
       </div>
     </main>
   );
-} 
+}

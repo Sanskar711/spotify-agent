@@ -1,0 +1,62 @@
+// ============================================================
+// Spotify AI Agent — Key Flows (Eraser Sequence Diagrams)
+// Paste each block separately into https://app.eraser.io
+// ============================================================
+
+// ---------- FLOW 1: Login + Account Creation ----------
+title Login & Account Creation
+
+Browser [icon: monitor]
+Backend [icon: server]
+Spotify [icon: spotify]
+Supabase [icon: database]
+
+Browser > Backend: GET /auth/login
+Backend > Browser: authorize URL (signed state)
+Browser > Spotify: redirect, user approves
+Spotify > Backend: GET /auth/callback?code&state
+Backend > Backend: verify state JWT
+Backend > Spotify: exchange code -> access + refresh tokens
+Spotify > Backend: tokens + profile
+Backend > Supabase: upsert users row (encrypted tokens)
+Backend > Browser: redirect /app?session=<JWT>
+Browser > Backend: GET /auth/me (Bearer JWT)
+Backend > Browser: user profile
+
+
+// ---------- FLOW 2: Chat Turn (ReAct + Tools) ----------
+title Chat Turn
+
+Browser [icon: monitor]
+Backend [icon: server]
+DB [icon: database]
+LLM [icon: brain]
+Spotify [icon: spotify]
+
+Browser > Backend: POST /chat {query} (Bearer JWT)
+Backend > DB: load user + chat history
+Backend > Spotify: refresh access token if expired
+loop [until output or max 8 steps] {
+  Backend > LLM: system prompt + messages
+  LLM > Backend: JSON action (plan | tool | output)
+  alt [type = tool] {
+    Backend > Spotify: run tool (search / recommend / queue)
+    Spotify > Backend: results -> observation
+  }
+}
+Backend > DB: persist user + assistant messages
+Backend > Browser: {response}
+
+
+// ---------- FLOW 3: Song Recognition (Shazam-like) ----------
+title Song Recognition
+
+Browser [icon: monitor]
+Backend [icon: server]
+AudD [icon: music]
+
+Browser > Browser: record ~8s mic clip (MediaRecorder)
+Browser > Backend: POST /recognize (audio, Bearer JWT)
+Backend > AudD: forward clip + return=spotify
+AudD > Backend: match {title, artist, spotifyUrl}
+Backend > Browser: recognized song + Spotify link
