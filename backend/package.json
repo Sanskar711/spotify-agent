@@ -12,7 +12,7 @@
   "license": "ISC",
   "description": "AI Spotify agent — accounts, multi-provider LLM, Shazam-like recognition",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "devDependencies": {
     "@types/node": "^22.15.2",
