@@ -1,70 +1,56 @@
-# Getting Started with Create React App
+# Frontend — Spotify AI Agent
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+React 19 + TypeScript SPA built with Vite and Tailwind. Chat UI, the post-login BYOK setup
+step, AI model settings, and microphone capture for song recognition.
 
-## Available Scripts
+See the [root README](../README.md) for architecture and the backend setup.
 
-In the project directory, you can run:
+## Run
 
-### `npm start`
+```bash
+npm install
+echo "VITE_BACKEND_URL=http://localhost:8000" > .env.local
+npm run dev       # http://localhost:5173
+```
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+| Script | Description |
+| --- | --- |
+| `npm run dev` | Vite dev server. |
+| `npm run build` | Production build to `dist/`. |
+| `npm run preview` | Serve the built output locally. |
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+`VITE_BACKEND_URL` is the only env var; it defaults to `http://localhost:8000`. It must be
+listed in the backend's `FRONTEND_URL` CORS allowlist.
 
-### `npm test`
+## Layout
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+| Path | Purpose |
+| --- | --- |
+| `src/App.tsx` | Router and providers. Routes: `/app`, `/login`. |
+| `src/app/page.tsx` | Chat screen; owns the BYOK gate that blocks the composer. |
+| `src/app/login/page.tsx` | Login screen and OAuth error messages. |
+| `src/context/AuthContext.tsx` | Session token in `localStorage`, `/auth/me` hydration. |
+| `src/context/ChatContext.tsx` | Message list, history loading, send/clear. |
+| `src/components/Settings.tsx` | Provider/model/API-key modal; doubles as the onboarding step. |
+| `src/components/ShazamButton.tsx` | Mic capture → `POST /recognize`. |
+| `src/components/Message.tsx` | Message bubble with link rendering. |
+| `src/utils/api.tsx` | Axios instance that attaches the session bearer token. |
 
-### `npm run build`
+## Auth flow in the client
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+The backend redirects to `/app?session=<jwt>` after Spotify login. `page.tsx` reads that
+query param, hands it to `AuthContext.login()`, and strips it from the URL. Any request
+that returns 401 clears the stored session and bounces the user to `/login`.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## BYOK gate
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+On landing with a session the app calls `GET /settings`. If `configured` is false (the user
+has never completed setup) or `needs_key` is true (no personal key and no server fallback),
+`Settings` renders in `onboarding` mode: not dismissable, no close button, and the chat
+input stays disabled until a model is connected. A failed settings request does **not**
+lock the user out — the gate opens on error.
 
-### `npm run eject`
+## Deployment
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Vercel with **Root Directory: `frontend`**. `vercel.json` rewrites all paths to
+`index.html` for client-side routing. Set `VITE_BACKEND_URL` to the deployed API origin.

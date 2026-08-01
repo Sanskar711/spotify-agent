@@ -7,15 +7,31 @@ import { useAuth } from '../../context/AuthContext';
 
 const ERRORS: Record<string, string> = {
   auth_failed: 'Spotify login failed. Please try again.',
-  state_mismatch: 'Security check failed. Please try again.',
+  auth_failed_token_exchange:
+    'Spotify rejected the login. Check the app credentials and that the redirect URI matches exactly.',
+  auth_failed_profile: 'Could not read your Spotify profile. Please try again.',
+  auth_failed_db: 'Signed in with Spotify, but the account database is unreachable. Contact the app owner.',
+  auth_failed_session: 'Could not create your session. Please try again.',
+  state_mismatch: 'Security check failed — the login took too long. Please try again.',
   no_code: 'No authorization code returned by Spotify.',
+  spotify_access_denied: 'You declined the Spotify permissions request.',
 };
+
+function messageFor(code: string) {
+  if (ERRORS[code]) return ERRORS[code];
+  // Spotify passes its own error slugs through as `spotify_<slug>`.
+  if (code.startsWith('spotify_')) {
+    return `Spotify refused the login (${code.slice(8)}). If this app is in development mode, your account must be added as a test user.`;
+  }
+  return 'Something went wrong during login.';
+}
 
 export default function Login() {
   const navigate = useNavigate();
   const { session } = useAuth();
   const [searchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -24,7 +40,10 @@ export default function Login() {
 
   useEffect(() => {
     const e = searchParams.get('error');
-    if (e) setError(ERRORS[e] || 'Something went wrong during login.');
+    if (e) {
+      setError(messageFor(e));
+      setDetail(searchParams.get('detail'));
+    }
   }, [searchParams]);
 
   const handleLogin = async () => {
@@ -58,7 +77,14 @@ export default function Login() {
           </svg>
           {busy ? 'Redirecting…' : 'Login with Spotify'}
         </button>
-        {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
+        {error && (
+          <div className="mt-4 max-w-md">
+            <p className="text-red-400 text-sm">{error}</p>
+            {detail && (
+              <p className="text-gray-500 text-xs mt-1 font-mono break-words">{detail}</p>
+            )}
+          </div>
+        )}
       </div>
     </main>
   );
