@@ -64,7 +64,7 @@ export async function getProfile(accessToken) {
   const res = await fetch(`${API}/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw new Error(`Spotify profile error ${res.status}`);
+  if (!res.ok) throw new Error(`Spotify profile error ${res.status}: ${await res.text()}`);
   return res.json();
 }
 
