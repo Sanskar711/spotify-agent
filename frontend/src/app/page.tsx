@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
+import api from '../utils/api';
 import Message from '../components/Message';
 import Settings from '../components/Settings';
 import ShazamButton from '../components/ShazamButton';
@@ -14,6 +15,8 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  // null = still checking; true = user must complete the BYOK step before chatting.
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
 
   // Capture the session token returned by the backend after Spotify login.
   useEffect(() => {
@@ -32,6 +35,24 @@ export default function Home() {
     }
   }, [session, navigate, searchParams]);
 
+  // BYOK gate: run once a session exists, before the user can send anything.
+  useEffect(() => {
+    if (!session) {
+      setNeedsSetup(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get('/settings')
+      .then((r) => {
+        if (!cancelled) setNeedsSetup(!r.data.configured || !!r.data.needs_key);
+      })
+      .catch(() => {
+        if (!cancelled) setNeedsSetup(false); // don't lock the user out on a transient error
+      });
+    return () => { cancelled = true; };
+  }, [session]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
@@ -43,7 +64,7 @@ export default function Home() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || needsSetup) return;
     const value = input;
     setInput('');
     await sendMessage(value);
@@ -110,13 +131,13 @@ export default function Home() {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask me anything about music..."
-            className="flex-1 bg-[#2a2a2a] text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1DB954]"
-            disabled={loading}
+            placeholder={needsSetup ? 'Connect an AI model to start chatting…' : 'Ask me anything about music...'}
+            className="flex-1 bg-[#2a2a2a] text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1DB954] disabled:opacity-50"
+            disabled={loading || !!needsSetup}
           />
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !!needsSetup}
             className="bg-[#1DB954] text-white px-4 py-2 rounded-lg hover:bg-[#1ed760] disabled:opacity-50"
           >
             {loading ? 'Sending...' : 'Send'}
@@ -124,7 +145,13 @@ export default function Home() {
         </form>
       </div>
 
-      <Settings open={showSettings} onClose={() => setShowSettings(false)} />
+      {/* Post-login BYOK step — blocks chat until a model is connected. */}
+      <Settings
+        open={needsSetup === true || showSettings}
+        onboarding={needsSetup === true && !showSettings}
+        onClose={() => setShowSettings(false)}
+        onSaved={() => setNeedsSetup(false)}
+      />
     </div>
   );
 }
