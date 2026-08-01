@@ -10,6 +10,8 @@ const ERRORS: Record<string, string> = {
   auth_failed_token_exchange:
     'Spotify rejected the login. Check the app credentials and that the redirect URI matches exactly.',
   auth_failed_profile: 'Could not read your Spotify profile. Please try again.',
+  not_allowlisted:
+    "This Spotify account isn't approved for this app yet. The app is in development mode, so the owner has to add your Spotify account email to the allowlist before you can log in.",
   auth_failed_db: 'Signed in with Spotify, but the account database is unreachable. Contact the app owner.',
   auth_failed_session: 'Could not create your session. Please try again.',
   state_mismatch: 'Security check failed — the login took too long. Please try again.',

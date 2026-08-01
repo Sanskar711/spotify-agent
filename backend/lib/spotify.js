@@ -64,7 +64,13 @@ export async function getProfile(accessToken) {
   const res = await fetch(`${API}/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw new Error(`Spotify profile error ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    // 403 here is how Spotify reports "app is in Development mode and this account
+    // isn't on the allowlist" — consent and the token exchange both succeed first.
+    const err = new Error(`Spotify profile error ${res.status}: ${await res.text()}`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 

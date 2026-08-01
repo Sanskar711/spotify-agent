@@ -83,6 +83,17 @@ router.get("/callback", async (req, res) => {
   } catch (e) {
     const detail = e?.message || String(e);
     console.error(`[auth] OAuth callback failed at step "${step}": ${detail}`);
+
+    // Development-mode apps only serve accounts listed under Settings → User Management.
+    if (step === "profile" && e?.status === 403) {
+      console.error(
+        "[auth] Hint: this Spotify account is not on the app's allowlist. Add it in the " +
+          "Spotify dashboard → your app → Settings → User Management (max 25), or request " +
+          "Extended Quota Mode to open the app to everyone."
+      );
+      return failRedirect(res, "not_allowlisted", detail);
+    }
+
     if (step === "db") {
       console.error(
         "[auth] Hint: check SUPABASE_URL (bare project URL, no /rest/v1), " +
