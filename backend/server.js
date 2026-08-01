@@ -3,6 +3,7 @@ import "dotenv/config"; // must load env before any module reads process.env at 
 import express from "express";
 import cors from "cors";
 
+import { checkDatabase } from "./lib/supabase.js";
 import authRoutes from "./routes/auth.js";
 import chatRoutes from "./routes/chat.js";
 import settingsRoutes from "./routes/settings.js";
@@ -25,7 +26,10 @@ app.use(
 app.use(express.json({ limit: "2mb" }));
 
 app.get("/", (req, res) => res.send("Spotify AI Agent API"));
-app.get("/health", (req, res) => res.json({ ok: true, uptime: process.uptime() }));
+app.get("/health", async (req, res) => {
+  const db = await checkDatabase();
+  res.status(db.ok ? 200 : 503).json({ ok: db.ok, uptime: process.uptime(), db });
+});
 
 app.use("/auth", authRoutes);
 app.use("/chat", chatRoutes);
@@ -33,6 +37,23 @@ app.use("/settings", settingsRoutes);
 app.use("/recognize", recognizeRoutes);
 
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, async () => {
+  console.log(`Server running on port ${PORT}`);
+
+  const missing = [
+    "CLIENT_ID",
+    "CLIENT_SECRET",
+    "REDIRECT_URI",
+    "JWT_SECRET",
+    "ENCRYPTION_KEY",
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+  ].filter((k) => !process.env[k]);
+  if (missing.length) console.error(`[boot] Missing required env vars: ${missing.join(", ")}`);
+
+  // A dead DB otherwise only surfaces as "Spotify login failed" after a full OAuth round-trip.
+  const db = await checkDatabase();
+  console.log(db.ok ? "[boot] Supabase reachable ✓" : `[boot] Supabase UNREACHABLE — ${db.reason}`);
+});
 
 export default app;

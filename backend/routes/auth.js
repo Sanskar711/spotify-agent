@@ -6,21 +6,51 @@ import { signSession, signState, verifyState, requireAuth } from "../middleware/
 
 const router = express.Router();
 
+// FRONTEND_URL may hold a comma-separated allowlist for CORS; redirects need one origin.
+function frontendBase() {
+  return (process.env.FRONTEND_URL || "http://localhost:5173")
+    .split(",")[0]
+    .trim()
+    .replace(/\/+$/, "");
+}
+
+function failRedirect(res, code, detail) {
+  const params = new URLSearchParams({ error: code });
+  // Opt-in: surfaces the underlying message in the UI instead of a generic string.
+  if (detail && process.env.DEBUG_AUTH_ERRORS === "true") {
+    params.set("detail", String(detail).slice(0, 300));
+  }
+  return res.redirect(`${frontendBase()}/login?${params.toString()}`);
+}
+
 router.get("/login", (req, res) => {
+  const missing = ["CLIENT_ID", "CLIENT_SECRET", "REDIRECT_URI", "JWT_SECRET"].filter(
+    (k) => !process.env[k]
+  );
+  if (missing.length) {
+    console.error(`[auth] Cannot start OAuth — missing env: ${missing.join(", ")}`);
+    return res.status(500).json({ error: `Server misconfigured: missing ${missing.join(", ")}` });
+  }
   res.json({ url: getAuthUrl(signState()) });
 });
 
 router.get("/callback", async (req, res) => {
   const { code, state, error } = req.query;
-  const frontend = process.env.FRONTEND_URL;
 
-  if (error) return res.redirect(`${frontend}/login?error=${encodeURIComponent(error)}`);
-  if (!state || !verifyState(state)) return res.redirect(`${frontend}/login?error=state_mismatch`);
-  if (!code) return res.redirect(`${frontend}/login?error=no_code`);
+  // Spotify's own rejections (user denied, app not allowlisted for this account, …).
+  if (error) return failRedirect(res, `spotify_${error}`, error);
+  if (!state || !verifyState(state)) return failRedirect(res, "state_mismatch");
+  if (!code) return failRedirect(res, "no_code");
 
+  // Tracks which stage blew up so the UI can say something actionable.
+  let step = "token_exchange";
   try {
     const tok = await exchangeCode(code);
+
+    step = "profile";
     const profile = await getProfile(tok.access_token);
+
+    step = "db";
     const expiresAt = new Date(Date.now() + tok.expires_in * 1000).toISOString();
 
     // Account creation / update — one row per Spotify user.
@@ -44,13 +74,22 @@ router.get("/callback", async (req, res) => {
       .select()
       .single();
 
-    if (dbErr) throw dbErr;
+    if (dbErr) throw new Error(dbErr.message || JSON.stringify(dbErr));
+    if (!user) throw new Error("Upsert returned no row");
 
+    step = "session";
     const session = signSession(user.id);
-    res.redirect(`${frontend}/app?session=${session}`);
+    res.redirect(`${frontendBase()}/app?session=${session}`);
   } catch (e) {
-    console.error("OAuth callback error:", e);
-    res.redirect(`${frontend}/login?error=auth_failed`);
+    const detail = e?.message || String(e);
+    console.error(`[auth] OAuth callback failed at step "${step}": ${detail}`);
+    if (step === "db") {
+      console.error(
+        "[auth] Hint: check SUPABASE_URL (bare project URL, no /rest/v1), " +
+          "SUPABASE_SERVICE_ROLE_KEY, and that the project is running and has the schema applied."
+      );
+    }
+    failRedirect(res, `auth_failed_${step}`, detail);
   }
 });
 

@@ -39,6 +39,18 @@ export function defaultModelFor(provider) {
   return PROVIDERS[provider]?.defaultModel;
 }
 
+// Server-side fallback key for a provider, used when the user hasn't brought one.
+export function envKeyFor(provider) {
+  return (
+    {
+      gemini: process.env.GEMINI_API_KEY,
+      groq: process.env.GROQ_API_KEY,
+      claude: process.env.ANTHROPIC_API_KEY,
+      openai: process.env.OPENAI_API_KEY,
+    }[provider] || null
+  );
+}
+
 export async function llmChat({ provider = "gemini", apiKey, model, system, messages }) {
   if (!PROVIDERS[provider]) throw new Error(`Unknown provider: ${provider}`);
   if (!apiKey) throw new Error(`No API key configured for provider "${provider}"`);

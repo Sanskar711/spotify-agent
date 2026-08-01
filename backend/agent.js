@@ -1,7 +1,7 @@
 // Agent brain: provider-agnostic ReAct loop driving Spotify tools.
 
 import { tools } from "./tools.js";
-import { llmChat, defaultModelFor } from "./lib/llm.js";
+import { llmChat, defaultModelFor, envKeyFor } from "./lib/llm.js";
 import { supabase } from "./lib/supabase.js";
 import { decrypt } from "./lib/crypto.js";
 
@@ -55,15 +55,6 @@ async function getUserLLMConfig(userId) {
   if (!apiKey) apiKey = envKeyFor(provider);
   const model = data?.model || defaultModelFor(provider);
   return { provider, model, apiKey };
-}
-
-function envKeyFor(provider) {
-  return {
-    gemini: process.env.GEMINI_API_KEY,
-    groq: process.env.GROQ_API_KEY,
-    claude: process.env.ANTHROPIC_API_KEY,
-    openai: process.env.OPENAI_API_KEY,
-  }[provider];
 }
 
 function parseAction(text) {
