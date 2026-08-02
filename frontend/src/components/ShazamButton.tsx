@@ -8,6 +8,13 @@ interface ShazamButtonProps {
 
 const RECORD_MS = 8000; // ~8s clip is plenty for AudD
 
+// Chrome/Firefox record webm/opus, Safari records mp4/aac — label the upload accordingly
+// so AudD doesn't have to guess at a container that doesn't match the extension.
+function extensionFor(mimeType: string) {
+  const base = (mimeType || '').split(';')[0].trim();
+  return { 'audio/mp4': 'mp4', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/wav': 'wav' }[base] || 'webm';
+}
+
 const ShazamButton: React.FC<ShazamButtonProps> = ({ onResult }) => {
   const [state, setState] = useState<'idle' | 'recording' | 'identifying'>('idle');
   const mediaRef = useRef<MediaRecorder | null>(null);
@@ -25,7 +32,7 @@ const ShazamButton: React.FC<ShazamButtonProps> = ({ onResult }) => {
     setState('identifying');
     try {
       const form = new FormData();
-      form.append('audio', blob, 'clip.webm');
+      form.append('audio', blob, `clip.${extensionFor(blob.type)}`);
       const res = await api.post('/recognize', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -36,8 +43,15 @@ const ShazamButton: React.FC<ShazamButtonProps> = ({ onResult }) => {
         const link = r.spotifyUrl ? `\n${r.spotifyUrl}` : '';
         onResult(`🎵 Recognized: **${r.title}** — ${r.artist}${r.album ? ` (${r.album})` : ''}${link}`);
       }
-    } catch {
-      onResult('Recognition failed. Check the AudD configuration and try again.');
+    } catch (err: any) {
+      // The server distinguishes a config problem (dead AudD key) from a bad clip —
+      // don't tell the user to re-record when re-recording can't help.
+      const data = err?.response?.data;
+      onResult(
+        data?.error
+          ? `${data.error}${data.detail ? `\n\n\`${data.detail}\`` : ''}`
+          : 'Recognition failed. Please try again.'
+      );
     } finally {
       setState('idle');
     }
@@ -52,7 +66,7 @@ const ShazamButton: React.FC<ShazamButtonProps> = ({ onResult }) => {
       mr.ondataavailable = (e) => e.data.size > 0 && chunksRef.current.push(e.data);
       mr.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
         identify(blob);
       };
       mr.start();

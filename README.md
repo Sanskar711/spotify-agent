@@ -111,6 +111,30 @@ carries a step-specific code, and the server log names the stage:
 
 Set `DEBUG_AUTH_ERRORS=true` to print the underlying message under the error on the login page.
 
+## Troubleshooting song recognition
+
+AudD answers **HTTP 200 for everything**, including failures — the outcome is only in the
+body, so a `200 OK` response object tells you nothing:
+
+| Body | Meaning |
+| --- | --- |
+| `{"status":"success","result":{…}}` | Matched. |
+| `{"status":"success","result":null}` | Genuinely no match — clip too short, quiet, or noisy. |
+| `{"status":"error","error":{"error_code":900,…}}` | `AUDD_API_TOKEN` is wrong, or the account has no active trial/subscription. |
+| `{"status":"error","error":{"error_code":901,…}}` | Request limit reached. |
+
+Codes 900/901 are account problems, so the API returns `503` with a message saying the key
+is at fault rather than blaming the recording. Check the token at
+[dashboard.audd.io](https://dashboard.audd.io); trials expire and the key then fails while
+still looking well-formed.
+
+Verify a token without touching the app:
+
+```bash
+curl -s -X POST https://api.audd.io/ \
+  -d api_token=$AUDD_API_TOKEN -d url=https://audd.tech/example.mp3
+```
+
 ## Notes and limits
 
 - Queueing and playback control need an **active** Spotify device and a **Premium** account.
